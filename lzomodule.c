@@ -20,7 +20,6 @@ static /* const */ char decompress__doc__[] =
 "decompress(string) -- Decompress the data in string, returning a string containing the decompressed data.\n"
 ;
 
-
 static PyObject *
 decompress(PyObject *dummy, PyObject *args)
 {
@@ -50,6 +49,47 @@ decompress(PyObject *dummy, PyObject *args)
   }
   result_str = PyString_FromStringAndSize(out, len);
   return result_str;
+
+}
+static PyObject *
+decompress_block(PyObject *dummy, PyObject *args)
+{
+  PyObject *result;
+  lzo_uint len;
+  int err;
+  lzo_bytep out;
+
+  lzo_bytep in;
+  lzo_uint in_len;
+  lzo_uint dst_len;
+  UNUSED(dummy);
+  
+  //should dst_len be uint?
+  if (!PyArg_ParseTuple(args, "s#I", &in, &in_len, &dst_len))
+    return NULL;
+
+  result = PyBytes_FromStringAndSize(NULL, dst_len);
+  if (result == NULL) {
+    return NULL;
+  }
+
+    
+  out = (lzo_bytep) PyBytes_AS_STRING(result);
+
+  err = lzo1x_decompress_safe(in, in_len, out, &len, NULL);
+
+  //r = lzo1x_decompress_safe(fin, 690, out, &len, NULL);
+  if (err != LZO_E_OK){
+      Py_DECREF(result);
+      result = NULL;
+      PyErr_SetString(LzoError, "internal error - decompression failed");
+      return NULL;
+  }
+  if (len != dst_len){
+    return NULL;
+  }
+
+  return result;
 
 }
 
@@ -103,6 +143,7 @@ static /* const */ PyMethodDef methods[] =
 {
 //    {"adler32",    (PyCFunction)adler32,    METH_VARARGS, adler32__doc__},
     {"decompress", (PyCFunction)decompress, METH_VARARGS, decompress__doc__},
+    {"decompress_block", (PyCFunction)decompress_block, METH_VARARGS, decompress__doc__},
     {"lzo_adler32", (PyCFunction)py_lzo_adler32, METH_VARARGS, decompress__doc__},
 #ifdef USE_LIBLZO
     {"lzo_crc32", (PyCFunction)py_lzo_crc32, METH_VARARGS, decompress__doc__},

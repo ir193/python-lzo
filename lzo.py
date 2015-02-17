@@ -14,10 +14,25 @@ CRC32_INIT_VALUE = 0
 
 
 LZOP_VERSION = 0x1030
-F_H_FILTER = 0x00000800L
-F_H_EXTRA_FIELD = 0x00000040L
 
-F_H_CRC32 = 0x00001000L
+MAX_BLOCK_SIZE = (64*1024l*1024L)
+
+F_ADLER32_D     = 0x00000001L
+F_ADLER32_C     = 0x00000002L
+F_STDIN         = 0x00000004L
+F_STDOUT        = 0x00000008L
+F_NAME_DEFAULT  = 0x00000010L
+F_DOSISH        = 0x00000020L
+F_H_EXTRA_FIELD = 0x00000040L
+F_H_GMTDIFF     = 0x00000080L
+F_CRC32_D       = 0x00000100L
+F_CRC32_C       = 0x00000200L
+F_MULTIPART     = 0x00000400L
+F_H_FILTER      = 0x00000800L
+F_H_CRC32       = 0x00001000L
+F_H_PATH        = 0x00002000L
+F_MASK          = 0x00003FFFL
+
 
 class LzoFile(io.BufferedIOBase):
 
@@ -158,7 +173,10 @@ class LzoFile(io.BufferedIOBase):
                 c_crc32 = d_crc32
 
         block = self.fileobj.read(src_len)
-        uncompressed = lzo1x_decompress(block)
+        uncompressed = decompress_block(block, dst_len)
+
+        print src_len, dst_len
+        print len(block), len(uncompressed)
         return uncompressed
 
     def _read_c(self, n):
@@ -198,7 +216,4 @@ class LzoFile(io.BufferedIOBase):
 f = LzoFile(filename = 'test.lzo')
 print 'magic', f._read_magic()
 f._read_header()
-print
-print hex(f.ver_need_ext)
-print hex(f.header_checksum)
-print hex(f.adler32)
+f._read_block()
