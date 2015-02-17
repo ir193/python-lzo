@@ -84,6 +84,7 @@ class LzoFile(io.BufferedIOBase):
 
         self.fileobj = fileobj
         self.offset = 0
+        self.verify_checksum = True
 
     def _read_magic(self):
         MAGIC = b"\x89\x4C\x5A\x4F\x00\x0D\x0A\x1A\x0A"
@@ -173,10 +174,22 @@ class LzoFile(io.BufferedIOBase):
                 c_crc32 = d_crc32
 
         block = self.fileobj.read(src_len)
-        uncompressed = decompress_block(block, dst_len)
 
-        print src_len, dst_len
-        print len(block), len(uncompressed)
+        if src_len < dst_len:
+            uncompressed = decompress_block(block, dst_len)
+        else:
+            uncompressed = block
+            
+        if self.verify_checksum:
+            if self.flags & F_ADLER32_C:
+                checksum = lzo_adler32(ADLER32_INIT_VALUE, block);
+                assert checksum == c_adler32
+
+            if self.flags & F_ADLER32_D:
+                checksum = lzo_adler32(ADLER32_INIT_VALUE, uncompressed);
+                assert checksum == d_adler32
+
+
         return uncompressed
 
     def _read_c(self, n):
@@ -207,7 +220,6 @@ class LzoFile(io.BufferedIOBase):
     def _read8(self):
         return ord(self.fileobj.read(1))
 
-
     def read(self):
         self._read_magic()
         self._read_header()
@@ -216,4 +228,14 @@ class LzoFile(io.BufferedIOBase):
 f = LzoFile(filename = 'test.lzo')
 print 'magic', f._read_magic()
 f._read_header()
-f._read_block()
+l = []
+while True:
+    block = f._read_block()
+    #rint len(block)
+    if block:
+        l.append(block)
+    else:
+        break
+
+data = b''.join(l)
+print len(data)

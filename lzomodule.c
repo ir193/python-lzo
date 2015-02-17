@@ -21,37 +21,6 @@ static /* const */ char decompress__doc__[] =
 ;
 
 static PyObject *
-decompress(PyObject *dummy, PyObject *args)
-{
-  PyObject *result_str;
-  lzo_uint len;
-  int err;
-  lzo_bytep out;
-
-  lzo_bytep in;
-  lzo_uint in_len;
-  UNUSED(dummy);
-
-  if (!PyArg_ParseTuple(args, "s#", &in, &in_len))
-    return NULL;
-
-
-  out = (lzo_bytep) malloc(BLOCK_SIZE);
-  if (out == NULL)  return PyErr_NoMemory();
-
-  err = lzo1x_decompress_safe(in, in_len, out, &len, NULL);
-  //r = lzo1x_decompress_safe(fin, 690, out, &len, NULL);
-  if (err != LZO_E_OK){
-      printf("internal error - decompression failed: %d\n", err);
-      PyErr_SetString(LzoError, "internal error - decompression failed");
-      free(out);
-      return NULL;
-  }
-  result_str = PyString_FromStringAndSize(out, len);
-  return result_str;
-
-}
-static PyObject *
 decompress_block(PyObject *dummy, PyObject *args)
 {
   PyObject *result;
@@ -141,8 +110,6 @@ py_lzo_crc32(PyObject *dummy, PyObject *args)
 
 static /* const */ PyMethodDef methods[] =
 {
-//    {"adler32",    (PyCFunction)adler32,    METH_VARARGS, adler32__doc__},
-    {"decompress", (PyCFunction)decompress, METH_VARARGS, decompress__doc__},
     {"decompress_block", (PyCFunction)decompress_block, METH_VARARGS, decompress__doc__},
     {"lzo_adler32", (PyCFunction)py_lzo_adler32, METH_VARARGS, decompress__doc__},
 #ifdef USE_LIBLZO
