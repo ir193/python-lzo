@@ -1,4 +1,9 @@
 
+A simple and sometimes naive python lzo library.
+
+
+
+
 
 Known issues:
 crc32 checksum not supported, because no such function in minilzo library
