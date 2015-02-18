@@ -26,5 +26,5 @@ ext = Extension(
 setup (name = 'python-lzo',
         version = '1.0',
         description = 'This is a demo package',
-        py_modules=['lzo'],
+        py_modules = ['lzo'],
         ext_modules = [ext])

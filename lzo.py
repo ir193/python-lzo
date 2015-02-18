@@ -4,7 +4,7 @@ import io
 import __builtin__
 from _lzo import *
 
-__all__ = ["LzoFile","open"]
+__all__ = ["LzoFile", "open"]
 
 
 READ, WRITE = 1, 2
@@ -66,6 +66,10 @@ class LzoFile(io.BufferedIOBase):
 
         if fileobj is None:
             fileobj = __builtin__.open(filename, mode)
+            self.need_close = True
+        else:
+            self.need_close = False
+
         if filename is None:
             if hasattr(fileobj, 'name'): filename = fileobj.name
             else: filename = ''
@@ -86,7 +90,116 @@ class LzoFile(io.BufferedIOBase):
         self.offset = 0
         self.verify_checksum = True
 
+        if self.mode == READ:
+            self._buf = []
+            self._buf_len = 0
+            self._read_magic()
+            self._read_header()
+
+    def _clear_buf(self):
+        self._buf = []
+        self._buf_len = 0
+
+    def _read_from_buf(self, size):
+        assert self._buf_len >= size
+        buf_read = 0
+        result = []
+        while self._buf:
+            block = self._buf.pop(0)
+
+            if buf_read + len(block) < size:
+                buf_read += len(block)
+                result.append(block)
+
+            elif buf_read + len(block) == size:
+                buf_read += len(block)
+                result.append(block)
+                break
+
+            else:
+                need = block[:size - buf_read]
+                remain = block[size - buf_read:]
+
+                result.append(need)
+
+                self._clear_buf()
+                self._buf.append(remain)
+                self._buf_len += len(remain)
+                
+                break
+
+        return b"".join(result)
+
+
+
+
+#    def __read_bak(self, size=-1):
+#        self._check_closed()#
+
+#        if self.mode != READ:
+#            import errno
+#            raise IOError(errno.EBADF, "read() on write-only GzipFile object")#
+
+#        if size == -1:
+#            result = []
+#            result.extend(self._buf)
+#            self._clear_buf()#
+
+#            while True:
+#                block = self._read_block()
+#                if block:
+#                    result.append(block)
+#                else:
+#                    return b"".join(result)#
+
+#        #size != -1
+#        if size < self._buf_len:
+#            buf_read = 0
+#            result = []#
+
+#            while True:
+#                block = self.buf.pop(0)  #pop left
+#                if buf_read + len(block) > size:
+#                    need = block[:buf_read-size]
+#                    remain = block[size-buf_read:]
+#                    result.append(need)
+#                    self._clear_buf()
+#                    self._buf.append(remain)
+#                    self._buf_len += len(remain)
+#                    
+#                    return b"".join(result)
+#                else:
+#                    buf_read += len(block)
+#                    result.append(block)#
+
+#        # elif size >= self._buf_len#
+
+#        result = self._buf[:]#
+
+#        to_read = size - self._buf_len
+#        self._clear_buf()
+#        while True:
+#            block = self._read_block()
+#            if not block:
+#                print 'EOF'
+#                return b"".join(result)#
+
+#            if len(block) > to_read:
+#                need = block[:to_read]
+#                remain = block[to_read:]
+#                result.append(need)
+#                self._buf.append(remain)
+#                self._buf_len += len(remain)#
+
+#                return b"".join(result)
+#            else:
+#                to_read -= len(block)
+#                result.append(block)
+    
+
+
     def _read_magic(self):
+        # XXX TODO: figure out why fails
         MAGIC = b"\x89\x4C\x5A\x4F\x00\x0D\x0A\x1A\x0A"
         magic = self.fileobj.read(len(MAGIC))
 
@@ -98,8 +211,6 @@ class LzoFile(io.BufferedIOBase):
     def _read_header(self):
         self.adler32 = ADLER32_INIT_VALUE
         self.crc32 = CRC32_INIT_VALUE
-
-        print 'debug'
 
         self.version = self._read16_c()
         self.libver = self._read16_c()
@@ -113,7 +224,6 @@ class LzoFile(io.BufferedIOBase):
 
         self.method = self._read8_c()
         assert(self.method in [1,2,3])
-        
 
         if self.version >= 0x0940:
             self.level = self._read8_c()
@@ -121,12 +231,12 @@ class LzoFile(io.BufferedIOBase):
         self.flags = self._read32_c()
 
         if self.flags & F_H_CRC32:
-            raise _lzo.error, 'CRC32 not implemented in minilzo'
+            raise error, 'CRC32 not implemented in minilzo'
 
         if self.flags & F_H_FILTER:
             self.ffilter = self._read32()
 
-        self.mode = self._read32_c()
+        self.compress_mode = self._read32_c()
         self.mtime_low = self._read32_c()
         if self.version >= 0x0940:
             self.mtime_high = self._read32_c()
@@ -151,7 +261,7 @@ class LzoFile(io.BufferedIOBase):
             return None
 
         if dst_len > MAX_BLOCK_SIZE:
-            raise _lzo.error, 'uncompressed larger than max block size'
+            raise error, 'uncompressed larger than max block size'
 
         src_len = self._read32()
 
@@ -179,7 +289,7 @@ class LzoFile(io.BufferedIOBase):
             uncompressed = decompress_block(block, dst_len)
         else:
             uncompressed = block
-            
+
         if self.verify_checksum:
             if self.flags & F_ADLER32_C:
                 checksum = lzo_adler32(ADLER32_INIT_VALUE, block);
@@ -188,7 +298,6 @@ class LzoFile(io.BufferedIOBase):
             if self.flags & F_ADLER32_D:
                 checksum = lzo_adler32(ADLER32_INIT_VALUE, uncompressed);
                 assert checksum == d_adler32
-
 
         return uncompressed
 
@@ -220,22 +329,121 @@ class LzoFile(io.BufferedIOBase):
     def _read8(self):
         return ord(self.fileobj.read(1))
 
-    def read(self):
+    @property
+    def closed(self):
+        return self.fileobj is None
+
+    def _check_closed(self):
+        """Raises a ValueError if the underlying file object has been closed.
+        """
+        if self.closed:
+            raise ValueError('I/O operation on closed file.')
+
+    def read(self, size=-1):
+        self._check_closed()
+
+        if self.mode != READ:
+            import errno
+            raise IOError(errno.EBADF, "read() on write-only GzipFile object")
+
+        while size == -1 or self._buf_len < size:
+            block = self._read_block()
+            if block:
+                self._buf.append(block)
+                self._buf_len += len(block)
+            else:
+                break
+
+        to_read = self._buf_len if size == -1 else size
+        self.offset += to_read
+        return self._read_from_buf(to_read)
+
+    @property
+    def closed(self):
+        return self.fileobj is None
+
+    def close(self):
+        if self.fileobj is None:
+            return
+        
+        if self.need_close:
+            self.fileobj.close()
+
+        if self.mode == READ:
+            self.fileobj = None
+        elif self.mode == WRITE:
+            raise IOError, 'Not implemented'
+
+    def fileno(self):
+        """Invoke the underlying file object's fileno() method.
+
+        This will raise AttributeError if the underlying file object
+        doesn't support fileno().
+        """
+        return self.fileobj.fileno()
+
+    def readable(self):
+        return self.mode == READ
+
+    def writable(self):
+        return self.mode == WRITE
+
+    def seekable(self):
+        return True
+
+    def seek(self, offset, whence=0):
+        if whence:
+            if whence == 1:
+                offset = self.offset + offset
+            else:
+                raise ValueError('Seek from end not supported')
+        if self.mode == WRITE:
+            if offset < self.offset:
+                raise IOError('Negative seek in write mode')
+            count = offset - self.offset
+            for i in range(count // 1024):
+                self.write(1024 * '\0')
+            self.write((count % 1024) * '\0')
+        elif self.mode == READ:
+            if offset < self.offset:
+                # for negative seek, rewind and do positive seek
+                self.rewind()
+            count = offset - self.offset
+            for i in range(count // 1024):
+                self.read(1024)
+            self.read(count % 1024)
+
+        return self.offset
+
+    def rewind(self):
+        '''Return the uncompressed stream file position indicator to the
+        beginning of the file'''
+        if self.mode != READ:
+            raise IOError("Can't rewind in write mode")
+        import warnings
+        warnings.warn("use rewind is slow")
+        
+        self.fileobj.seek(0)
         self._read_magic()
         self._read_header()
 
+        self._clear_buf()
+        self.offset = 0
 
-f = LzoFile(filename = 'test.lzo')
-print 'magic', f._read_magic()
-f._read_header()
-l = []
-while True:
-    block = f._read_block()
-    #rint len(block)
-    if block:
-        l.append(block)
-    else:
-        break
 
-data = b''.join(l)
-print len(data)
+    def __repr__(self):
+        s = repr(self.fileobj)
+        return '<gzip ' + s[1:-1] + ' ' + hex(id(self)) + '>'
+
+
+def test():
+    f = LzoFile(filename = 'test.lzo')
+    d1 = f.read(1)
+    d2 = f.read(2)
+    d3 = f.read()
+    f.rewind()
+    d = f.read()
+    assert d == d1+d2+d3
+    f.close()
+
+test()
