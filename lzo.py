@@ -14,6 +14,8 @@ CRC32_INIT_VALUE = 0
 
 
 LZOP_VERSION = 0x1030
+LZO_LIB_VERSION = 0x0940
+
 
 MAX_BLOCK_SIZE = (64*1024l*1024L)
 
@@ -96,6 +98,26 @@ class LzoFile(io.BufferedIOBase):
             self._read_magic()
             self._read_header()
 
+        elif self.mode == WRITE:
+            self.version = LZOP_VERSION
+            self.libver = LZO_LIB_VERSION
+
+            self.method = 1
+            self.level = compresslevel
+
+            self.flags = 0
+            #self.flags|= F_OS & F_OS_MASK
+            #self.flags|= F_CS & F_CS_MASK
+
+            self.compress_mode = 0
+            self.mtime_low = 0
+            self.mtime_high = 0
+
+            self.name = filename
+
+            self._write_magic()
+            self._write_header()
+
     def _clear_buf(self):
         self._buf = []
         self._buf_len = 0
@@ -129,72 +151,6 @@ class LzoFile(io.BufferedIOBase):
                 break
 
         return b"".join(result)
-
-
-
-
-#    def __read_bak(self, size=-1):
-#        self._check_closed()#
-
-#        if self.mode != READ:
-#            import errno
-#            raise IOError(errno.EBADF, "read() on write-only GzipFile object")#
-
-#        if size == -1:
-#            result = []
-#            result.extend(self._buf)
-#            self._clear_buf()#
-
-#            while True:
-#                block = self._read_block()
-#                if block:
-#                    result.append(block)
-#                else:
-#                    return b"".join(result)#
-
-#        #size != -1
-#        if size < self._buf_len:
-#            buf_read = 0
-#            result = []#
-
-#            while True:
-#                block = self.buf.pop(0)  #pop left
-#                if buf_read + len(block) > size:
-#                    need = block[:buf_read-size]
-#                    remain = block[size-buf_read:]
-#                    result.append(need)
-#                    self._clear_buf()
-#                    self._buf.append(remain)
-#                    self._buf_len += len(remain)
-#                    
-#                    return b"".join(result)
-#                else:
-#                    buf_read += len(block)
-#                    result.append(block)#
-
-#        # elif size >= self._buf_len#
-
-#        result = self._buf[:]#
-
-#        to_read = size - self._buf_len
-#        self._clear_buf()
-#        while True:
-#            block = self._read_block()
-#            if not block:
-#                print 'EOF'
-#                return b"".join(result)#
-
-#            if len(block) > to_read:
-#                need = block[:to_read]
-#                remain = block[to_read:]
-#                result.append(need)
-#                self._buf.append(remain)
-#                self._buf_len += len(remain)#
-
-#                return b"".join(result)
-#            else:
-#                to_read -= len(block)
-#                result.append(block)
     
 
 
@@ -299,6 +255,8 @@ class LzoFile(io.BufferedIOBase):
                 checksum = lzo_adler32(ADLER32_INIT_VALUE, uncompressed);
                 assert checksum == d_adler32
 
+            # XXX TODO: CRC checksum
+
         return uncompressed
 
     def _read_c(self, n):
@@ -315,8 +273,8 @@ class LzoFile(io.BufferedIOBase):
         return struct.unpack(">I", self._read_c(4))[0]
 
     def _read16_c(self):
-        return struct.unpack(">H", self._read_c(2))[0]
-        
+        return struct.unpack(">H", self._read_c(2))[0]  
+
     def _read8_c(self):
         return ord(self._read_c(1))
 
@@ -328,6 +286,54 @@ class LzoFile(io.BufferedIOBase):
         
     def _read8(self):
         return ord(self.fileobj.read(1))
+
+
+    def _write_c(self, bytes):
+        '''write with checksum, using in write header'''
+        n = self.fileobj.write(bytes)
+        #print hex(self.adler32)
+        self.adler32 = lzo_adler32(self.adler32, bytes)
+        return n
+
+    def _write32_c(self, value):
+        self._write_c(struct.pack(">I", value))
+
+    def _write16_c(self, value):
+        self._write_c(struct.pack(">H", value))
+
+    def _write8_c(self, value):
+        self._write_c(struct.pack("B", value))
+
+    def _write_magic(self):
+        MAGIC = b"\x89\x4C\x5A\x4F\x00\x0D\x0A\x1A\x0A"
+        self.fileobj.write(MAGIC)
+
+    def _write_header(self):
+        self.adler32 = ADLER32_INIT_VALUE
+        self.crc32 = CRC32_INIT_VALUE
+
+        self._write16_c(self.version)
+        self._write16_c(self.libver)
+        self._write16_c(0x0940)        # ver_need_ext #TODO: del magic number 
+
+        self._write8_c(self.method)
+        self._write8_c(self.level)
+
+        self._write32_c(self.flags)
+
+        self._write32_c(self.mode)
+        self._write32_c(self.mtime_low)
+        self._write32_c(self.mtime_high)
+
+        l = len(self.name)
+        assert l < 255
+
+        self._write8_c(l)
+        if l>0:
+            self._write_c(self.name)
+
+        self._write32_c(self.adler32)
+
 
     @property
     def closed(self):
@@ -372,7 +378,7 @@ class LzoFile(io.BufferedIOBase):
         if self.mode == READ:
             self.fileobj = None
         elif self.mode == WRITE:
-            raise IOError, 'Not implemented'
+            self.fileobj = None
 
     def fileno(self):
         """Invoke the underlying file object's fileno() method.
@@ -422,7 +428,7 @@ class LzoFile(io.BufferedIOBase):
             raise IOError("Can't rewind in write mode")
         import warnings
         warnings.warn("use rewind is slow")
-        
+
         self.fileobj.seek(0)
         self._read_magic()
         self._read_header()
@@ -437,6 +443,13 @@ class LzoFile(io.BufferedIOBase):
 
 
 def test():
+    f = LzoFile(filename = 'write.lzo', mode='wb')
+    f.close()
+    print 'write done\n'
+    f = LzoFile(filename = 'write.lzo', mode='rb')
+    f.close()
+
+
     f = LzoFile(filename = 'test.lzo')
     d1 = f.read(1)
     d2 = f.read(2)

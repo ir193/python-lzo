@@ -1,0 +1,12 @@
+
+
+Known issues:
+crc32 checksum not supported, because no such function in minilzo library
+filter not supported, but version number not current
+path name not supported
+mtime read but not set
+
+
+TODO:
+check if liblzo presents. Use it if so, otherwise use builtin minilzo
+figure out why signature check fails like lzop does
