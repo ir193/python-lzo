@@ -17,7 +17,9 @@ LZOP_VERSION = 0x1030
 LZO_LIB_VERSION = 0x0940
 
 
+BLOCK_SIZE = (128*1024L)
 MAX_BLOCK_SIZE = (64*1024l*1024L)
+
 
 F_ADLER32_D     = 0x00000001L
 F_ADLER32_C     = 0x00000002L
@@ -39,7 +41,7 @@ F_MASK          = 0x00003FFFL
 class LzoFile(io.BufferedIOBase):
 
     def __init__(self, filename=None, mode=None,
-                 compresslevel=9, fileobj=None, mtime=None):
+                 compresslevel=None, fileobj=None, mtime=None):
         """Constructor for the GzipFile class.
 
         At least one of fileobj and filename must be given a
@@ -102,12 +104,15 @@ class LzoFile(io.BufferedIOBase):
             self.version = LZOP_VERSION
             self.libver = LZO_LIB_VERSION
 
-            self.method = 1
-            self.level = compresslevel
+            self.method = 1             # TODO: three methods
+            self.level = 1
 
             self.flags = 0
             #self.flags|= F_OS & F_OS_MASK
             #self.flags|= F_CS & F_CS_MASK
+
+            self.flags|= F_ADLER32_D
+            self.flags|= F_ADLER32_C
 
             self.compress_mode = 0
             self.mtime_low = 0
@@ -213,6 +218,7 @@ class LzoFile(io.BufferedIOBase):
 
     def _read_block(self):
         dst_len = self._read32()
+
         if dst_len == 0:
             return None
 
@@ -240,6 +246,7 @@ class LzoFile(io.BufferedIOBase):
                 c_crc32 = d_crc32
 
         block = self.fileobj.read(src_len)
+
 
         if src_len < dst_len:
             uncompressed = decompress_block(block, dst_len)
@@ -304,6 +311,15 @@ class LzoFile(io.BufferedIOBase):
     def _write8_c(self, value):
         self._write_c(struct.pack("B", value))
 
+    def _write32(self, value):
+        self.fileobj.write(struct.pack(">I", value))
+
+    def _write16(self, value):
+        self.fileobj.write(struct.pack(">H", value))
+
+    def _write8(self, value):
+        self.fileobj.write(struct.pack("B", value))
+
     def _write_magic(self):
         MAGIC = b"\x89\x4C\x5A\x4F\x00\x0D\x0A\x1A\x0A"
         self.fileobj.write(MAGIC)
@@ -334,6 +350,39 @@ class LzoFile(io.BufferedIOBase):
 
         self._write32_c(self.adler32)
 
+    def _write_block(self, block):
+        bytes_write = 0
+
+        self._write32(len(block))
+
+        bytes_write += 4
+        if len(block) == 0:
+            return bytes_write
+
+        d_adler32 = lzo_adler32(ADLER32_INIT_VALUE, block)
+
+        #print self.method, self.level
+        compressed = compress_block(block, self.method, self.level)
+        c_adler32 = lzo_adler32(ADLER32_INIT_VALUE, compressed)
+
+
+        if len(compressed) < len(block):
+            self._write32(len(compressed))
+            self._write32(d_adler32)
+            self._write32(c_adler32)
+            
+            self.fileobj.write(compressed)
+            bytes_write += len(compressed) + 8
+            return bytes_write
+
+        else:
+            self._write32(len(block))
+            self._write32(d_adler32)
+            self.fileobj.write(block)
+            bytes_write += len(compressed) + 8
+            return bytes_write
+
+
 
     @property
     def closed(self):
@@ -363,6 +412,21 @@ class LzoFile(io.BufferedIOBase):
         to_read = self._buf_len if size == -1 else size
         self.offset += to_read
         return self._read_from_buf(to_read)
+
+    def write(self, content):
+        bytes_write = 0
+        off = 0
+
+        while off + BLOCK_SIZE < len(content):
+            block = content[off:off+BLOCK_SIZE]
+            off += BLOCK_SIZE
+            self._write_block(block)
+            #print 1
+        self._write_block(content[off:])
+
+        #if off < len(content)
+        self._write32(0)
+
 
     @property
     def closed(self):
@@ -444,9 +508,17 @@ class LzoFile(io.BufferedIOBase):
 
 def test():
     f = LzoFile(filename = 'write.lzo', mode='wb')
+    o = __builtin__.open('D:\\ch06_iter.pdf', 'rb')
+    data = o.read()
+    f.write(data)
+    o.close()
     f.close()
     print 'write done\n'
+
     f = LzoFile(filename = 'write.lzo', mode='rb')
+    un = f.read()
+    with open('content', 'wb') as o:
+        o.write(un)
     f.close()
 
 
