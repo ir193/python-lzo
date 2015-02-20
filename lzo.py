@@ -6,6 +6,7 @@ from _lzo import *
 
 __all__ = ["LzoFile", "open"]
 
+MAGIC = b"\x89\x4C\x5A\x4F\x00\x0D\x0A\x1A\x0A"
 
 READ, WRITE = 1, 2
 
@@ -37,15 +38,19 @@ F_H_CRC32       = 0x00001000L
 F_H_PATH        = 0x00002000L
 F_MASK          = 0x00003FFFL
 
+def open(filename, mode):
+    return LzoFile(filename = filename, mode = mode)
 
 class LzoFile(io.BufferedIOBase):
 
     def __init__(self, filename=None, mode=None,
-                 compresslevel=None, fileobj=None, mtime=None):
-        """Constructor for the GzipFile class.
+                 compresslevel=None, fileobj=None, mtime=None, verify_checksum=True):
+        """Constructor for the LzoFile class.
 
         At least one of fileobj and filename must be given a
         non-trivial value.
+
+        The compresslevel and mtime attribute is not supported so far
 
         The new class instance is based on fileobj, which can be a regular
         file, a StringIO object, or any other object which simulates a file.
@@ -92,7 +97,7 @@ class LzoFile(io.BufferedIOBase):
 
         self.fileobj = fileobj
         self.offset = 0
-        self.verify_checksum = True
+        self.verify_checksum = verify_checksum
 
         if self.mode == READ:
             self._buf = []
@@ -208,13 +213,15 @@ class LzoFile(io.BufferedIOBase):
         checksum = self.crc32 if self.flags & F_H_CRC32 else self.adler32
 
         self.header_checksum = self._read32_c()
-        assert checksum == self.header_checksum
+        if self.verify_checksum:
+            assert checksum == self.header_checksum
 
         if self.flags & F_H_EXTRA_FIELD:
             l = self._read32_c()
             self.extra = self._read_c(l)
             checksum = self.crc32 if self.flags & F_H_CRC32 else self.adler32
-            assert checksum == self._read32_c()
+            if self.verify_checksum:
+                assert checksum == self._read32_c()
 
     def _read_block(self):
         dst_len = self._read32()
@@ -255,11 +262,11 @@ class LzoFile(io.BufferedIOBase):
 
         if self.verify_checksum:
             if self.flags & F_ADLER32_C:
-                checksum = lzo_adler32(ADLER32_INIT_VALUE, block);
+                checksum = lzo_adler32(block, ADLER32_INIT_VALUE);
                 assert checksum == c_adler32
 
             if self.flags & F_ADLER32_D:
-                checksum = lzo_adler32(ADLER32_INIT_VALUE, uncompressed);
+                checksum = lzo_adler32(uncompressed, ADLER32_INIT_VALUE);
                 assert checksum == d_adler32
 
             # XXX TODO: CRC checksum
@@ -268,12 +275,8 @@ class LzoFile(io.BufferedIOBase):
 
     def _read_c(self, n):
         bytes = self.fileobj.read(n)
-        #print hex(self.adler32)
-        self.adler32 = lzo_adler32(self.adler32, bytes)
-
-        #if lzo_crc32:
-        #    self.crc32 = lzo_crc32(self.crc32, bytes)
-
+        #print self.adler32
+        self.adler32 = lzo_adler32(bytes, self.adler32)
         return bytes
 
     def _read32_c(self):
@@ -294,12 +297,11 @@ class LzoFile(io.BufferedIOBase):
     def _read8(self):
         return ord(self.fileobj.read(1))
 
-
     def _write_c(self, bytes):
         '''write with checksum, using in write header'''
         n = self.fileobj.write(bytes)
         #print hex(self.adler32)
-        self.adler32 = lzo_adler32(self.adler32, bytes)
+        self.adler32 = lzo_adler32(bytes, self.adler32)
         return n
 
     def _write32_c(self, value):
@@ -321,7 +323,6 @@ class LzoFile(io.BufferedIOBase):
         self.fileobj.write(struct.pack("B", value))
 
     def _write_magic(self):
-        MAGIC = b"\x89\x4C\x5A\x4F\x00\x0D\x0A\x1A\x0A"
         self.fileobj.write(MAGIC)
 
     def _write_header(self):
@@ -359,11 +360,11 @@ class LzoFile(io.BufferedIOBase):
         if len(block) == 0:
             return bytes_write
 
-        d_adler32 = lzo_adler32(ADLER32_INIT_VALUE, block)
+        d_adler32 = lzo_adler32(block, ADLER32_INIT_VALUE)
 
         #print self.method, self.level
         compressed = compress_block(block, self.method, self.level)
-        c_adler32 = lzo_adler32(ADLER32_INIT_VALUE, compressed)
+        c_adler32 = lzo_adler32(compressed, ADLER32_INIT_VALUE)
 
 
         if len(compressed) < len(block):
@@ -381,7 +382,6 @@ class LzoFile(io.BufferedIOBase):
             self.fileobj.write(block)
             bytes_write += len(compressed) + 8
             return bytes_write
-
 
 
     @property
@@ -507,28 +507,49 @@ class LzoFile(io.BufferedIOBase):
 
 
 def test():
-    f = LzoFile(filename = 'write.lzo', mode='wb')
-    o = __builtin__.open('boot.img', 'rb')
-    data = o.read()
+    import os
+    data = os.urandom(2*1024*1024)
+
+    f = LzoFile(filename = 'test.lzo', mode='wb')
     f.write(data)
-    o.close()
     f.close()
-    print 'write done\n'
+    print('write done')
 
-    f = LzoFile(filename = 'write.lzo', mode='rb')
-    un = f.read()
-    with open('content', 'wb') as o:
-        o.write(un)
+    f = LzoFile(filename = 'test.lzo', mode='rb')
+    part1 = f.read(1024)
+    part2 = f.read(1024)
+    part3 = f.read()
     f.close()
+    assert data == b''.join([part1, part2, part3])
+
+    print('test complete')
+
+def main():
+    import argparse
+    import os
+    parser = argparse.ArgumentParser(description='Compress or decompress like lzop')
+    parser.add_argument('-d', '--decompress', dest='decompress', action='store_true')
+    #parser.add_argument('-t', '--test', dest='test', action='store_true')
+    parser.add_argument('path')
+    args = parser.parse_args()
+
+    filename = os.path.basename(args.path)
+    if args.decompress:
+        with LzoFile(filename = args.path) as f:
+            name, ext = os.path.splitext(filename)
+            if ext == '.lzo':
+                de_name = name
+            else:
+                de_name = filename + '.uncompressed'
+
+            with open(de_name, 'wb') as de:
+                de.write(f.read())
+
+    else:
+        with open(args.path, 'rb') as f:
+            with LzoFile(filename = args.path + ".lzo", mode = 'wb') as com:
+                com.write(f.read())
 
 
-    f = LzoFile(filename = 'write.lzo')
-    d1 = f.read(1)
-    d2 = f.read(2)
-    d3 = f.read()
-    f.rewind()
-    d = f.read()
-    assert d == d1+d2+d3
-    f.close()
-
-test()
+if __name__ == '__main__':
+    main()

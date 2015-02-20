@@ -1,8 +1,29 @@
 ##A simple and sometimes naive python lzo library.
 
 This is a python library deals with lzo files compressed with lzop.
+There is a python-lzo module in github, but it's for compressing strings using lzo.
+This module is for lzop generate *file*. It parses the header structures and check the checksum.
 
+One possible usage is unpack Android(linux) kernel boot.img. And actually it's why I create this ugly module.
 
+##Usage##
+You can use it as command line tools:
+
+    python lzo.py file_to_compress
+
+Or import it into your script
+
+    import lzo
+    f = lzo.open('compressed.lzo', 'wb')
+    data = #some data
+    f.write(data)
+
+Open boot.img:
+
+    import lzo
+    f = open('boot.img', 'rb')
+    f.seek(#calculate your offset)
+    LzoFile(fileobj=f, mode = 'rb')
 
 
 

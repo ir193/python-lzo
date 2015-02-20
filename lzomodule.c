@@ -29,7 +29,7 @@ static /* const */ char compress__doc__[] =
 static /* const */ char decompress__doc__[] =
 "decompress one block, the uncompressed size should be passed as second argument (which is know when parsing lzop structure)\n"
 ;
-static /* const */ char lzo_adler32[] =
+static /* const */ char lzo_adler32__doc__[] =
 "adler32 checksum.\n"
 ;
 
@@ -59,7 +59,7 @@ compress_block(PyObject *dummy, PyObject *args)
 
   out_len = in_len + in_len / 64 + 16 + 3;
 
-  result = PyString_FromStringAndSize(NULL, out_len);
+  result = PyBytes_FromStringAndSize(NULL, out_len);
 
   if (result == NULL){
     return PyErr_NoMemory();
@@ -139,7 +139,7 @@ decompress_block(PyObject *dummy, PyObject *args)
   if (!PyArg_ParseTuple(args, "s#n", &in, &in_len, &dst_len))
     return NULL;
 
-  result = PyString_FromStringAndSize(NULL, dst_len);
+  result = PyBytes_FromStringAndSize(NULL, dst_len);
 
   if (result == NULL) {
     return PyErr_NoMemory();
@@ -166,13 +166,13 @@ decompress_block(PyObject *dummy, PyObject *args)
 static PyObject *
 py_lzo_adler32(PyObject *dummy, PyObject *args)
 {
-  lzo_uint32 value;
+  lzo_uint32 value = 1;
   const lzo_bytep in;
   Py_ssize_t len;
 
   lzo_uint32 new;
 
-  if (!PyArg_ParseTuple(args, "Is#", &value, &in, &len))
+  if (!PyArg_ParseTuple(args, "s#|I", &in, &len, &value))
     return NULL;
 
   if(len>0){
@@ -180,7 +180,7 @@ py_lzo_adler32(PyObject *dummy, PyObject *args)
     return Py_BuildValue("I", new);
   }
   else{
-    return Py_BuildValue("I", 1);
+    return Py_BuildValue("I", value);
   }
 }
 
@@ -202,7 +202,7 @@ py_lzo_crc32(PyObject *dummy, PyObject *args)
     return Py_BuildValue("I", new);
   }
   else{
-    return Py_BuildValue("I", 1);
+    return Py_BuildValue("I", value);
   }
 }
 #endif
