@@ -1,5 +1,6 @@
+##A simple and sometimes naive python lzo library.
 
-A simple and sometimes naive python lzo library.
+This is a python library deals with lzo files compressed with lzop.
 
 
 

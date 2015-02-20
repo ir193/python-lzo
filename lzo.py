@@ -508,7 +508,7 @@ class LzoFile(io.BufferedIOBase):
 
 def test():
     f = LzoFile(filename = 'write.lzo', mode='wb')
-    o = __builtin__.open('D:\\ch06_iter.pdf', 'rb')
+    o = __builtin__.open('boot.img', 'rb')
     data = o.read()
     f.write(data)
     o.close()
@@ -522,7 +522,7 @@ def test():
     f.close()
 
 
-    f = LzoFile(filename = 'test.lzo')
+    f = LzoFile(filename = 'write.lzo')
     d1 = f.read(1)
     d2 = f.read(2)
     d3 = f.read()
