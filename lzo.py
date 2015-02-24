@@ -542,11 +542,11 @@ def main():
             else:
                 de_name = filename + '.uncompressed'
 
-            with open(de_name, 'wb') as de:
+            with __builtin__.open(de_name, 'wb') as de:
                 de.write(f.read())
 
     else:
-        with open(args.path, 'rb') as f:
+        with __builtin__.open(args.path, 'rb') as f:
             with LzoFile(filename = args.path + ".lzo", mode = 'wb') as com:
                 com.write(f.read())
 
