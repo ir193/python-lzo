@@ -147,6 +147,7 @@ decompress_block(PyObject *dummy, PyObject *args)
 
   out = (lzo_bytep) PyBytes_AS_STRING(result);
 
+  len = in_len;
   err = lzo1x_decompress_safe(in, (lzo_uint)in_len, out, (lzo_uint*)&len, NULL);
 
   if (err != LZO_E_OK){
