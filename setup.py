@@ -1,5 +1,4 @@
-from distutils.core import setup, Extension
-import os
+from setuptools import setup, Extension
 
 include_dirs = []
 define_macros = []
@@ -23,8 +22,8 @@ ext = Extension(
     extra_link_args=extra_link_args,
 )
 
-setup (name = 'python-lzo',
-        version = '1.0',
-        description = 'This is a demo package',
-        py_modules = ['lzo'],
-        ext_modules = [ext])
+setup(name='python-lzo',
+      version='1.0',
+      description='This is a demo package',
+      py_modules=['lzo'],
+      ext_modules=[ext])
