@@ -1,8 +1,10 @@
 
 import struct
 import io
-import __builtin__
+import builtins
 from _lzo import *
+
+from enum import IntFlag
 
 __all__ = ["LzoFile", "open"]
 
@@ -18,25 +20,41 @@ LZOP_VERSION = 0x1030
 LZO_LIB_VERSION = 0x0940
 
 
-BLOCK_SIZE = (128*1024L)
-MAX_BLOCK_SIZE = (64*1024l*1024L)
+BLOCK_SIZE = (128*1024)
+MAX_BLOCK_SIZE = (64*1024*1024)
 
+class Flags(IntFlag):
+    adler32_d          = 0x00000001
+    adler32_c          = 0x00000002
+    stdin              = 0x00000004
+    stdout             = 0x00000008
+    name_default       = 0x00000010
+    dosish             = 0x00000020
+    header_extra_field = 0x00000040
+    header_gmt_diff    = 0x00000080
+    crc32_d            = 0x00000100
+    crc32_c            = 0x00000200
+    multipart          = 0x00000400
+    header_filter      = 0x00000800
+    header_crc32       = 0x00001000
+    header_path        = 0x00002000
+    mask               = 0x00003FFF
 
-F_ADLER32_D     = 0x00000001L
-F_ADLER32_C     = 0x00000002L
-F_STDIN         = 0x00000004L
-F_STDOUT        = 0x00000008L
-F_NAME_DEFAULT  = 0x00000010L
-F_DOSISH        = 0x00000020L
-F_H_EXTRA_FIELD = 0x00000040L
-F_H_GMTDIFF     = 0x00000080L
-F_CRC32_D       = 0x00000100L
-F_CRC32_C       = 0x00000200L
-F_MULTIPART     = 0x00000400L
-F_H_FILTER      = 0x00000800L
-F_H_CRC32       = 0x00001000L
-F_H_PATH        = 0x00002000L
-F_MASK          = 0x00003FFFL
+F_ADLER32_D     = Flags.adler32_d
+F_ADLER32_C     = Flags.adler32_c
+F_STDIN         = Flags.stdin
+F_STDOUT        = Flags.stdout
+F_NAME_DEFAULT  = Flags.name_default
+F_DOSISH        = Flags.dosish
+F_H_EXTRA_FIELD = Flags.header_extra_field
+F_H_GMTDIFF     = Flags.header_gmt_diff
+F_CRC32_D       = Flags.crc32_d
+F_CRC32_C       = Flags.crc32_c
+F_MULTIPART     = Flags.multipart
+F_H_FILTER      = Flags.header_filter
+F_H_CRC32       = Flags.header_crc32
+F_H_PATH        = Flags.header_path
+F_MASK          = Flags.mask
 
 def open(filename, mode):
     return LzoFile(filename = filename, mode = mode)
@@ -53,7 +71,7 @@ class LzoFile(io.BufferedIOBase):
         The compresslevel and mtime attribute is not supported so far
 
         The new class instance is based on fileobj, which can be a regular
-        file, a StringIO object, or any other object which simulates a file.
+        file, a BytesIO object, or any other object which simulates a file.
         It defaults to None, in which case filename is opened to provide
         a file object.
 
@@ -74,7 +92,7 @@ class LzoFile(io.BufferedIOBase):
             mode = 'rb'
 
         if fileobj is None:
-            fileobj = __builtin__.open(filename, mode)
+            fileobj = builtins.open(filename, mode)
             self.need_close = True
         else:
             self.need_close = False
@@ -93,7 +111,7 @@ class LzoFile(io.BufferedIOBase):
             self.mode = WRITE
 
         else:
-            raise IOError, "Mode " + mode + " not supported"
+            raise IOError("Mode " + mode + " not supported")
 
         self.fileobj = fileobj
         self.offset = 0
@@ -123,10 +141,16 @@ class LzoFile(io.BufferedIOBase):
             self.mtime_low = 0
             self.mtime_high = 0
 
-            self.name = filename
+            self.name = filename.encode("utf-8")
 
             self._write_magic()
             self._write_header()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args, **kwargs):
+        self.close()
 
     def _clear_buf(self):
         self._buf = []
@@ -172,7 +196,7 @@ class LzoFile(io.BufferedIOBase):
         if magic == MAGIC:
             return True
         else:
-            raise IOError, 'Wrong lzo signature'
+            raise IOError('Wrong lzo signature')
 
     def _read_header(self):
         self.adler32 = ADLER32_INIT_VALUE
@@ -184,9 +208,9 @@ class LzoFile(io.BufferedIOBase):
         if self.version > 0x0940:
             self.ver_need_ext = self._read16_c()
             if self.ver_need_ext > LZOP_VERSION:
-                raise IOError, 'Need liblzo version higher than %s' %(hex(self.ver_need_ext))
+                raise IOError('Need liblzo version higher than %s' %(hex(self.ver_need_ext)))
             elif self.ver_need_ext < 0x0900:
-                raise IOError, '3'
+                raise IOError('3')
 
         self.method = self._read8_c()
         assert(self.method in [1,2,3])
@@ -197,7 +221,7 @@ class LzoFile(io.BufferedIOBase):
         self.flags = self._read32_c()
 
         if self.flags & F_H_CRC32:
-            raise error, 'CRC32 not implemented in minilzo'
+            raise error('CRC32 not implemented in minilzo')
 
         if self.flags & F_H_FILTER:
             self.ffilter = self._read32()
@@ -230,7 +254,7 @@ class LzoFile(io.BufferedIOBase):
             return None
 
         if dst_len > MAX_BLOCK_SIZE:
-            raise error, 'uncompressed larger than max block size'
+            raise error('uncompressed larger than max block size')
 
         src_len = self._read32()
 
@@ -542,11 +566,11 @@ def main():
             else:
                 de_name = filename + '.uncompressed'
 
-            with __builtin__.open(de_name, 'wb') as de:
+            with builtins.open(de_name, 'wb') as de:
                 de.write(f.read())
 
     else:
-        with __builtin__.open(args.path, 'rb') as f:
+        with builtins.open(args.path, 'rb') as f:
             with LzoFile(filename = args.path + ".lzo", mode = 'wb') as com:
                 com.write(f.read())
 
