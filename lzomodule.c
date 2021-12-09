@@ -59,12 +59,6 @@ compress_block(PyObject *dummy, PyObject *args)
 
   out_len = in_len + in_len / 64 + 16 + 3;
 
-  result = PyBytes_FromStringAndSize(NULL, out_len);
-
-  if (result == NULL){
-    return PyErr_NoMemory();
-  }
-
   if (method == M_LZO1X_1)
       wrk_len = LZO1X_1_MEM_COMPRESS;
 #ifdef USE_LIBLZO
@@ -78,7 +72,7 @@ compress_block(PyObject *dummy, PyObject *args)
   assert(wrk_len <= WRK_LEN);
 
   wrkmem = (lzo_voidp) PyMem_Malloc(wrk_len);
-  out = (lzo_bytep) PyString_AsString(result);
+  out = (lzo_bytep) PyMem_Malloc(out_len);
   
   if (method == M_LZO1X_1){
     err = lzo1x_1_compress(in, (lzo_uint) in_len, out, (lzo_uint*) &new_len, wrkmem);
@@ -96,12 +90,18 @@ compress_block(PyObject *dummy, PyObject *args)
 #endif
   else{
     PyMem_Free(wrkmem);
-    Py_DECREF(result);
+    PyMem_Free(out);
     PyErr_SetString(LzoError, "Compression method not supported");
     return NULL;
   }
 
+  result = PyBytes_FromStringAndSize(out, new_len);
+  if (result == NULL){
+    return PyErr_NoMemory();
+  }
+
   PyMem_Free(wrkmem);
+  PyMem_Free(out);
   if (err != LZO_E_OK || new_len > out_len)
   {
     /* this should NEVER happen */
@@ -109,13 +109,6 @@ compress_block(PyObject *dummy, PyObject *args)
     PyErr_Format(LzoError, "Error %i while compressing data", err);
     return NULL;
   }
-
-  if (new_len != out_len)
-    _PyString_Resize(&result, new_len);
-    /* 
-      If the reallocation fails, the result is set to NULL, and memory exception is set
-      So should raise right exception to python environment without additional check
-    */
 
   return result;
 
@@ -229,39 +222,34 @@ static /* const */ char module_documentation[]=
 
 ;
 
+static PyModuleDef moduleSpec = {
+	PyModuleDef_HEAD_INIT,
+	/*.m_name=*/"_lzo",
+	/*.m_doc=*/module_documentation,
+	/*.m_size=*/-1,
+	/*.m_methods=*/methods,
+	/*.m_reload=*/NULL,
+	/*.m_traverse=*/NULL,
+	/*.m_clear=*/NULL,
+	/*.m_free=*/NULL,
+};
 
 #ifdef _MSC_VER
 _declspec(dllexport)
 #endif
-void init_lzo(void)
-{
-    PyObject *m, *d, *v;
+PyMODINIT_FUNC PyInit__lzo() {
     if (lzo_init() != LZO_E_OK)
     {
-        return;
+        return NULL;
     }
-
-    m = Py_InitModule4("_lzo", methods, module_documentation,
-                       NULL, PYTHON_API_VERSION);
-    d = PyModule_GetDict(m);
-
-    LzoError = PyErr_NewException("_lzo.error", NULL, NULL);
-    PyDict_SetItemString(d, "error", LzoError);
-
-    v = PyString_FromString("<iridiummx@gmail.com>");
-    PyDict_SetItemString(d, "__author__", v);
-    Py_DECREF(v);
-
-    v = PyInt_FromLong(LZO_VERSION);
-    PyDict_SetItemString(d, "LZO_VERSION", v);
-    Py_DECREF(v);
-    v = PyString_FromString(LZO_VERSION_STRING);
-    PyDict_SetItemString(d, "LZO_VERSION_STRING", v);
-    Py_DECREF(v);
-    v = PyString_FromString(LZO_VERSION_DATE);
-    PyDict_SetItemString(d, "LZO_VERSION_DATE", v);
-    Py_DECREF(v);
-}
+	PyObject *m = PyModule_Create(&moduleSpec);
+	PyObject_SetAttrString(m, "__author__", PyUnicode_FromString("<iridiummx@gmail.com>"));
+	PyObject_SetAttrString(m, "LZO_VERSION", PyLong_FromLong(LZO_VERSION));
+	PyObject_SetAttrString(m, "LZO_VERSION_STRING", PyUnicode_FromString(LZO_VERSION_STRING));
+	PyObject_SetAttrString(m, "LZO_VERSION_DATE", PyUnicode_FromString(LZO_VERSION_DATE));
+	PyObject_SetAttrString(m, "error", (PyObject*) PyErr_NewException("_lzo.error", NULL, NULL));
+	return m;
+ }
 
 
 /*
