@@ -78,8 +78,11 @@ compress_block(PyObject *dummy, PyObject *args)
   assert(wrk_len <= WRK_LEN);
 
   wrkmem = (lzo_voidp) PyMem_Malloc(wrk_len);
+#if PY_MAJOR_VERSION >= 3
+  out = (lzo_bytep) PyUnicode_AsUTF8(result);
+#else
   out = (lzo_bytep) PyString_AsString(result);
-  
+#endif
   if (method == M_LZO1X_1){
     err = lzo1x_1_compress(in, (lzo_uint) in_len, out, (lzo_uint*) &new_len, wrkmem);
   }
@@ -111,7 +114,11 @@ compress_block(PyObject *dummy, PyObject *args)
   }
 
   if (new_len != out_len)
-    _PyString_Resize(&result, new_len);
+#if PY_MAJOR_VERSION >= 3
+   _PyBytes_Resize(&result, new_len); 
+#else
+   _PyString_Resize(&result, new_len);
+#endif
     /* 
       If the reallocation fails, the result is set to NULL, and memory exception is set
       So should raise right exception to python environment without additional check
@@ -230,6 +237,19 @@ static /* const */ char module_documentation[]=
 ;
 
 
+#if PY_MAJOR_VERSION >= 3
+static struct PyModuleDef _lzo = {
+    PyModuleDef_HEAD_INIT,
+    "_lzo",
+    module_documentation,
+    -1,
+    methods
+};
+PyMODINIT_FUNC PyInit__lzo() {
+    return PyModule_Create(&_lzo);
+}
+#endif
+
 #ifdef _MSC_VER
 _declspec(dllexport)
 #endif
@@ -240,19 +260,27 @@ void init_lzo(void)
     {
         return;
     }
-
-    m = Py_InitModule4("_lzo", methods, module_documentation,
+#if PY_MAJOR_VERSION >= 3
+    m = PyInit__lzo();
+#else
+    m = Py_InitModule("_lzo", methods, module_documentation,
                        NULL, PYTHON_API_VERSION);
+#endif
     d = PyModule_GetDict(m);
 
     LzoError = PyErr_NewException("_lzo.error", NULL, NULL);
     PyDict_SetItemString(d, "error", LzoError);
-
+#if PY_MAJOR_VERSION >= 3
+#define PyString_FromString PyUnicode_FromString
+#endif
     v = PyString_FromString("<iridiummx@gmail.com>");
     PyDict_SetItemString(d, "__author__", v);
     Py_DECREF(v);
-
+#if PY_MAJOR_VERSION >= 3
+    v = PyLong_FromLong(LZO_VERSION);
+#else
     v = PyInt_FromLong(LZO_VERSION);
+#endif
     PyDict_SetItemString(d, "LZO_VERSION", v);
     Py_DECREF(v);
     v = PyString_FromString(LZO_VERSION_STRING);
@@ -261,6 +289,7 @@ void init_lzo(void)
     v = PyString_FromString(LZO_VERSION_DATE);
     PyDict_SetItemString(d, "LZO_VERSION_DATE", v);
     Py_DECREF(v);
+#undef PyString_FromString
 }
 
 
