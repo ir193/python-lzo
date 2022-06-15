@@ -506,6 +506,18 @@ class LzoFile(io.BufferedIOBase):
         return '<gzip ' + s[1:-1] + ' ' + hex(id(self)) + '>'
 
 
+def compress(d: bytes, compressLevel=None, mtime=None) -> bytes:
+    with BytesIO() as oF:
+        with lzo.LzoFile(mode="wb", fileobj=oF, compresslevel=compresslevel, mtime=mtime) as cf:
+            cf.write(d)
+        return oF.getvalue()
+
+
+def decompress(d: bytes) -> bytes:
+    with BytesIO(d) as iF:
+        with lzo.LzoFile(mode="rb", fileobj=iF) as cf:
+            return cf.read()
+
 def test():
     import os
     data = os.urandom(2*1024*1024)
